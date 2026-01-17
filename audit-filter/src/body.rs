@@ -6,7 +6,6 @@ use crate::types::AuditStage;
 use bytes::Bytes;
 use http_body::Body as HttpBody;
 use hyper::{Body, StatusCode};
-use pin_project::pin_project;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -17,9 +16,7 @@ use std::task::{Context, Poll};
 /// 包装 Hyper 的 Body，用于：
 /// 1. 检测长请求的首次数据发送
 /// 2. 在流结束时记录完成阶段
-#[pin_project]
 pub struct AuditResponseBody {
-    #[pin]
     inner: Body,
     context: AuditContext,
     _guard: AuditGuard,
@@ -53,21 +50,22 @@ impl HttpBody for AuditResponseBody {
     type Error = hyper::Error;
 
     fn poll_data(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        let this = self.project();
-
+        // SAFETY: 我们不会移动 inner，只是获取可变引用
+        // Body 本身是 Unpin 的，所以这是安全的
+        let inner = unsafe { Pin::new_unchecked(&mut self.inner) };
+        
         // 转发到内部 Body
-        let result = this.inner.poll_data(cx);
+        let result = inner.poll_data(cx);
 
-        // 检测长请求的首次数据（可选：在这里记录 ResponseStarted）
-        if *this.is_long_running && !*this.first_chunk_sent {
+        // 检测长请求的首次数据
+        if self.is_long_running && !self.first_chunk_sent {
             if let Poll::Ready(Some(Ok(_))) = &result {
-                *this.first_chunk_sent = true;
-                // 注意：我们已经在 middleware 中记录了 ResponseStarted
-                // 如果需要在实际发送数据时才记录，可以在这里调用
-                // this.context.process_stage(AuditStage::ResponseStarted);
+                self.first_chunk_sent = true;
+                // 可选：在这里记录 ResponseStarted
+                // self.context.process_stage(AuditStage::ResponseStarted);
             }
         }
 
@@ -75,11 +73,12 @@ impl HttpBody for AuditResponseBody {
     }
 
     fn poll_trailers(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Option<http::HeaderMap>, Self::Error>> {
-        let this = self.project();
-        this.inner.poll_trailers(cx)
+        // SAFETY: 同上
+        let inner = unsafe { Pin::new_unchecked(&mut self.inner) };
+        inner.poll_trailers(cx)
     }
 
     fn is_end_stream(&self) -> bool {
