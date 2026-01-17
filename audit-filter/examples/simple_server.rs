@@ -26,11 +26,6 @@ async fn handle_request(
             // 错误请求
             Err("Intentional error".into())
         }
-        "/panic" => {
-            // Panic 请求（注意：在实际环境中 panic 会导致线程崩溃）
-            // 这里仅用于演示审计机制
-            panic!("Intentional panic!");
-        }
         "/watch" => {
             // 长时间运行请求
             let body = Body::from("Watching...");
@@ -86,9 +81,13 @@ async fn main() {
                     )
                     .await;
 
-                    // 将错误转换为 HTTP 响应
+                    // 将 AuditResponseBodyWrapper 转换为 Hyper Body
                     match result {
-                        Ok(response) => Ok::<_, Infallible>(response),
+                        Ok(response) => {
+                            let (parts, body) = response.into_parts();
+                            let hyper_body = to_hyper_body(body);
+                            Ok::<_, Infallible>(Response::from_parts(parts, hyper_body))
+                        }
                         Err(e) => {
                             eprintln!("Handler error: {}", e);
                             let mut response = Response::new(Body::from(format!("Error: {}", e)));

@@ -57,7 +57,7 @@ pub mod types;
 pub use body::AuditResponseBody;
 pub use context::AuditContext;
 pub use guard::AuditGuard;
-pub use middleware::with_audit;
+pub use middleware::{with_audit, AuditResponseBodyWrapper, to_hyper_body};
 pub use policy::{AlwaysAuditPolicy, PathBasedPolicy, PolicyEvaluator, LongRunningCheck, default_long_running_check};
 pub use sink::{AuditProcessor, AuditSink, ConsoleSink};
 pub use types::{AuditEvent, AuditStage};
