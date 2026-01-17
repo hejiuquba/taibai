@@ -1,0 +1,18 @@
+[package]
+name = "audit-filter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hyper = { version = "0.14", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
+http = "0.2"
+http-body = "0.4"
+bytes = "1"
+pin-project = "1"
+parking_lot = "0.12"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio-test = "0.4"
