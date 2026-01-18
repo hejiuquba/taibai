@@ -55,20 +55,24 @@ async fn main() {
     let policy: Arc<dyn PolicyEvaluator> = Arc::new(AlwaysAuditPolicy);
 
     // 4. 定义长请求检查函数
+    // 显式转换为 trait object
     let long_running_check: Option<LongRunningCheck> =
-        Some(Box::new(default_long_running_check));
+        Some(Box::new(|req: &Request<Body>| default_long_running_check(req)) as Box<dyn Fn(&Request<Body>) -> bool + Send + Sync>);
 
     // 5. 创建服务
     let make_svc = make_service_fn(move |_conn| {
         let event_sender = event_sender.clone();
         let policy = policy.clone();
-        let long_running_check = long_running_check.clone();
 
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
                 let event_sender = event_sender.clone();
                 let policy = policy.clone();
-                let long_running_check = long_running_check.clone();
+                // 在每个请求处理闭包中重新创建 long_running_check
+                // 显式转换为 trait object
+                let long_running_check: Option<LongRunningCheck> = 
+                    Some(Box::new(|req: &Request<Body>| default_long_running_check(req)) 
+                         as Box<dyn Fn(&Request<Body>) -> bool + Send + Sync>);
 
                 async move {
                     // 使用审计中间件包装请求

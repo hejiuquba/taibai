@@ -39,7 +39,7 @@ impl HttpBody for AuditResponseBodyWrapper {
             }
             AuditResponseBodyWrapper::Audited(audit_body) => {
                 let pinned = unsafe { Pin::new_unchecked(audit_body) };
-                audit_body.poll_data(cx)
+                pinned.poll_data(cx)
             }
         }
     }
@@ -55,7 +55,7 @@ impl HttpBody for AuditResponseBodyWrapper {
             }
             AuditResponseBodyWrapper::Audited(audit_body) => {
                 let pinned = unsafe { Pin::new_unchecked(audit_body) };
-                audit_body.poll_trailers(cx)
+                pinned.poll_trailers(cx)
             }
         }
     }
