@@ -197,3 +197,128 @@ StagePanic	发生 Panic	处理请求时发生 panic
 这个设计保证了 Kubernetes 审计日志的完整性和可靠性，是生产环境中追踪 API 操作的关键组件。
 
 
+关键问题：defer 什么时候触发？
+你的疑问很关键！让我用执行时序图解释：
+
+复制
+时间线：
+┌─────────────────────────────────────────────────────────────┐
+│ 1. 进入 WithAudit 的 HandlerFunc                              │
+│ 2. 评估策略，创建审计上下文                                    │
+│ 3. 记录 StageRequestReceived ✓                               │
+│ 4. 注册 defer 函数（但不执行）                                 │
+│ 5. 调用 handler.ServeHTTP(respWriter, req) ← 🔥 关键点       │
+│    ├─ 进入下一个中间件                                         │
+│    ├─ 继续链式调用...                                          │
+│    ├─ 最终到达业务 Handler                                     │
+│    ├─ 🔄 处理请求（可能很耗时）                                │
+│    ├─ 写入响应状态码（触发 WriteHeader）                       │
+│    ├─ 写入响应体                                               │
+│    └─ 返回 ← handler.ServeHTTP 执行完毕                       │
+│ 6. defer 函数执行 ✓                                           │
+│    ├─ 记录延迟                                                 │
+│    └─ 记录 StageResponseComplete                              │
+│ 7. HandlerFunc 返回                                           │
+└─────────────────────────────────────────────────────────────┘
+核心机制解释
+handler.ServeHTTP(respWriter, req) 是阻塞调用
+复制
+defer func() {
+    // ... 审计完成逻辑
+}()
+handler.ServeHTTP(respWriter, req)  // ← 这里会阻塞，直到整个请求处理完成
+// 当上面这行返回时，说明请求已经处理完毕，响应已经发送
+关键点：
+
+handler.ServeHTTP() 是同步调用，会等待整个请求处理链完成
+包括所有后续中间件、业务逻辑、响应写入
+只有当响应完全发送后，这个函数才返回
+返回后，defer 函数才执行
+实际执行示例
+假设有这样的中间件链：
+
+复制
+// 中间件链
+WithAudit(
+    WithAuthentication(
+        WithAuthorization(
+            BusinessHandler  // 实际处理请求的 Handler
+        )
+    )
+)
+执行流程：
+
+复制
+// 时刻 T0: 请求到达
+WithAudit.ServeHTTP() {
+    // T1: 记录 RequestReceived
+    ac.ProcessEventStage(StageRequestReceived)
+    
+    // T2: 注册 defer（不执行）
+    defer func() {
+        // T10: 最后执行
+        ac.ProcessEventStage(StageResponseComplete)
+    }()
+    
+    // T3: 调用下一个 Handler（阻塞在这里）
+    WithAuthentication.ServeHTTP() {
+        // T4
+        WithAuthorization.ServeHTTP() {
+            // T5
+            BusinessHandler.ServeHTTP() {
+                // T6: 处理业务逻辑
+                // T7: w.WriteHeader(200)  ← 触发 decorateResponseWriter 拦截
+                // T8: w.Write(data)
+                // T9: 返回
+            }
+        }
+    }
+    // T10: handler.ServeHTTP 返回，defer 执行
+}
+decorateResponseWriter 的作用
+复制
+respWriter := decorateResponseWriter(ctx, w, isLongRunning)
+handler.ServeHTTP(respWriter, req)  // 传入包装后的 writer
+这个包装的 ResponseWriter 会拦截：
+
+WriteHeader(statusCode) - 捕获状态码，记录 StageResponseStarted（长运行请求）
+Write(data) - 可以捕获响应体
+示例：
+
+复制
+// 在业务 Handler 中
+func (h *BusinessHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    // 处理逻辑...
+    w.WriteHeader(200)  // ← 这里会触发 decorateResponseWriter.WriteHeader
+                        //   记录 StageResponseStarted（如果是长运行请求）
+    w.Write([]byte("OK"))
+    // 函数返回，逐层返回到 WithAudit
+}
+验证理解的测试代码
+复制
+func TestAuditTiming() {
+    handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        fmt.Println("T6: 业务逻辑开始")
+        time.Sleep(2 * time.Second)  // 模拟耗时操作
+        w.WriteHeader(200)
+        fmt.Println("T8: 响应已写入")
+    })
+    
+    auditHandler := WithAudit(handler, sink, policy, nil)
+    
+    auditHandler.ServeHTTP(w, req)
+    // 输出顺序：
+    // T3: RequestReceived 记录
+    // T6: 业务逻辑开始
+    // T8: 响应已写入
+    // T10: ResponseComplete 记录（defer 执行）
+}
+总结
+你的疑问"此时服务端还没有处理请求"是因为误以为 defer 会立即执行。实际上：
+
+defer 注册时不执行，只是"预约"在函数返回时执行
+handler.ServeHTTP() 是阻塞的，会等待整个请求处理完成
+当 handler.ServeHTTP() 返回时，请求已经完全处理完毕，响应已发送
+此时 defer 执行，记录 StageResponseComplete 是准确的
+这就是为什么 defer 能正确记录"响应完成"阶段的原因！
+
