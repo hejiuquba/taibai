@@ -1,7 +1,6 @@
 //! 公共类型定义
 
 use std::time::{Duration, SystemTime};
-use hyper::StatusCode;
 
 /// 审计阶段
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +13,30 @@ pub enum AuditStage {
     ResponseComplete,
     /// 发生 Panic
     Panic,
+}
+
+/// HTTP 状态码包装，避免直接依赖 http
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StatusCode(u16);
+
+impl StatusCode {
+    pub fn from_u16(code: u16) -> Option<Self> {
+        if code >= 100 && code <= 599 {
+            Some(Self(code))
+        } else {
+            None
+        }
+    }
+    
+    pub fn as_u16(&self) -> u16 {
+        self.0
+    }
+    
+    // 常用状态码
+    pub const OK: StatusCode = StatusCode(200);
+    pub const NOT_FOUND: StatusCode = StatusCode(404);
+    pub const INTERNAL_SERVER_ERROR: StatusCode = StatusCode(500);
+    pub const UNAUTHORIZED: StatusCode = StatusCode(401);
 }
 
 /// 审计事件

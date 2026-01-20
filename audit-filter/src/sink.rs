@@ -21,7 +21,7 @@ impl AuditSink for ConsoleSink {
             event.stage,
             event.method,
             event.path,
-            event.status,
+            event.status.map(|s| s.as_u16()),
             event.latency
         );
     }
@@ -42,7 +42,7 @@ impl AuditProcessor {
             while let Some(event) = rx.recv().await {
                 sink.process_event(event);
             }
-            tracing::debug!("Audit processor task terminated");
+            eprintln!("[DEBUG] Audit processor task terminated");
         });
 
         Self { sender: tx }
@@ -51,7 +51,7 @@ impl AuditProcessor {
     /// 发送审计事件（非阻塞）
     pub fn send_event(&self, event: AuditEvent) {
         if let Err(e) = self.sender.send(event) {
-            tracing::error!("Failed to send audit event: {:?}", e);
+            eprintln!("[ERROR] Failed to send audit event: {:?}", e);
         }
     }
 

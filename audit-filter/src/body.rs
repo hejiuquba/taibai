@@ -1,21 +1,18 @@
-//! 响应体包装 - 用于拦截响应流并记录完成阶段
+//! 响应体包装
 
 use crate::context::AuditContext;
 use crate::guard::AuditGuard;
-use crate::types::AuditStage;
-use bytes::Bytes;
-use http_body::Body as HttpBody;
-use hyper::{Body, StatusCode};
+use crate::types::{AuditStage, StatusCode};
+use hyper::Body;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+/// 类型别名，隐藏 Bytes 的实际来源
+type BodyData = hyper::body::Bytes;
+
 /// 审计响应体包装
-/// 
-/// 包装 Hyper 的 Body，用于：
-/// 1. 检测长请求的首次数据发送
-/// 2. 在流结束时记录完成阶段
 pub struct AuditResponseBody {
     inner: Body,
     context: AuditContext,
@@ -26,7 +23,6 @@ pub struct AuditResponseBody {
 }
 
 impl AuditResponseBody {
-    /// 创建新的审计响应体
     pub fn new(
         inner: Body,
         context: AuditContext,
@@ -45,67 +41,40 @@ impl AuditResponseBody {
     }
 }
 
-impl HttpBody for AuditResponseBody {
-    type Data = Bytes;
-    type Error = hyper::Error;
+impl futures::Stream for AuditResponseBody {
+    type Item = Result<BodyData, hyper::Error>;
 
-    fn poll_data(
+    fn poll_next(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
-        // SAFETY: 我们不会移动 inner，只是获取可变引用
-        // Body 本身是 Unpin 的，所以这是安全的
+    ) -> Poll<Option<Self::Item>> {
         let inner = unsafe { Pin::new_unchecked(&mut self.inner) };
-        
-        // 转发到内部 Body
-        let result = inner.poll_data(cx);
+        let result = inner.poll_next(cx);
 
-        // 检测长请求的首次数据
         if self.is_long_running && !self.first_chunk_sent {
             if let Poll::Ready(Some(Ok(_))) = &result {
                 self.first_chunk_sent = true;
-                // 可选：在这里记录 ResponseStarted
-                // self.context.process_stage(AuditStage::ResponseStarted);
+                self.context.process_stage(AuditStage::ResponseStarted);
             }
         }
 
+        if let Poll::Ready(None) = &result {
+            self.completed_flag.store(true, Ordering::SeqCst);
+        }
+
         result
-    }
-
-    fn poll_trailers(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<Option<http::HeaderMap>, Self::Error>> {
-        // SAFETY: 同上
-        let inner = unsafe { Pin::new_unchecked(&mut self.inner) };
-        inner.poll_trailers(cx)
-    }
-
-    fn is_end_stream(&self) -> bool {
-        self.inner.is_end_stream()
-    }
-
-    fn size_hint(&self) -> http_body::SizeHint {
-        self.inner.size_hint()
     }
 }
 
 impl Drop for AuditResponseBody {
     fn drop(&mut self) {
-        // 标记守卫为已完成
         self.completed_flag.store(true, Ordering::SeqCst);
 
-        // 检查是否是 panic 导致的 drop
         if std::thread::panicking() {
-            tracing::warn!(
-                "AuditResponseBody dropped due to panic: {}",
-                self.context.event_id()
-            );
-            self.context
-                .set_response_status(StatusCode::INTERNAL_SERVER_ERROR);
+            eprintln!("[WARN] AuditResponseBody dropped due to panic: {}", self.context.event_id());
+            self.context.set_response_status(StatusCode::INTERNAL_SERVER_ERROR);
             self.context.process_stage(AuditStage::Panic);
         } else {
-            // 正常完成：Body 流结束
             if self.context.get_response_status().is_none() {
                 self.context.set_response_status(StatusCode::OK);
             }
