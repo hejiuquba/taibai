@@ -1,0 +1,35 @@
+# k8s-audit-plugins/Cargo.toml
+[package]
+name = "k8s-audit-plugins"
+version = "0.1.0"
+edition = "2021"
+description = "Kubernetes审计日志插件实现"
+license = "Apache-2.0"
+authors = ["Your Name <your.email@example.com>"]
+repository = ""
+
+[lib]
+
+[dependencies]
+k8s-audit-apis = { path = "../k8s-audit-apis" }
+k8s-audit-core = { path = "../k8s-audit-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.10"  # 用于测试中的正则表达式匹配
+uuid = { version = "1.6", features = ["v4"] }  # 用于生成测试ID
+# 使用 rustls 替代 openssl
+reqwest = { version = "0.11", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "blocking",
+] }
+serde_yaml = "0.9"  # 用于解析kubeconfig
+url = "2.5"
+tokio = { version = "1.0", features = ["full"] }
+rand = "0.8"
+futures-util = "0.3"
+
+[dev-dependencies]
+wiremock = "0.5"  # 用于HTTP模拟测试
+tempfile = "3.6"  # 用于临时文件
+tokio = { version = "1.0", features = ["full"] }  # 测试需要异步运行时
