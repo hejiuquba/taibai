@@ -58,8 +58,7 @@ pub fn x509_key_pair_rust(cert_data: &[u8], key_data: &[u8]) -> Result<(), Valid
     crypto_init::ensure_initialized();
 
     // 1. 解析证书链
-    let certs = parse_certificates(cert_data)
-        .map_err(ValidationError::CertificateParse)?;
+    let certs = parse_certificates(cert_data).map_err(ValidationError::CertificateParse)?;
 
     let first_cert = certs
         .first()
@@ -71,8 +70,7 @@ pub fn x509_key_pair_rust(cert_data: &[u8], key_data: &[u8]) -> Result<(), Valid
         .clone(); // 克隆证书数据
 
     // 2. 解析私钥
-    let private_key = parse_private_key(key_data)
-        .map_err(ValidationError::PrivateKeyParse)?;
+    let private_key = parse_private_key(key_data).map_err(ValidationError::PrivateKeyParse)?;
 
     // 3. 尝试构建ServerConfig来验证匹配性
     match try_build_server_config(vec![first_cert], private_key) {
