@@ -8,6 +8,10 @@ hyper = { version = "0.14", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
 # 移除 http 和 uuid
 futures = "0.3"
+tls-secret-validator = { path = "tls_secret_validator" }
+k8s-audit-apis ={ path = "k8s-audit-apis"}
+k8s-audit-core ={ path = "k8s-audit-core"}
+k8s-audit-plugins ={ path = "k8s-audit-plugins"}
 
 [dev-dependencies]
 tokio-test = "0.4"

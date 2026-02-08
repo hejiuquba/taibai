@@ -1,0 +1,19 @@
+[package]
+name = "tls-secret-validator"
+version = "0.1.0"
+edition = "2021"
+description = "Kubernetes-style TLS Secret validator matching Go's tls.X509KeyPair behavior"
+repository = "https://github.com/your-repo/tls-secret-validator"
+
+[lib]
+name = "tls_secret_validator"
+path = "src/lib.rs"
+
+[dependencies]
+# 明确使用 ring 作为 rustls 的密码学后端
+rustls = { version = "0.23", features = ["ring", "tls12"] }
+base64 = "0.22"
+thiserror = "1.0"
+
+[dev-dependencies]
+anyhow = "1.0"
