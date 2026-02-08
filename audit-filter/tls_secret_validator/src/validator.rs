@@ -3,7 +3,6 @@ use rustls::crypto::CryptoProvider;
 use rustls::pki_types::{
     CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
 };
-use thiserror::Error;
 
 // 在模块层面初始化密码学提供者
 mod crypto_init {
@@ -22,20 +21,36 @@ mod crypto_init {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum ValidationError {
-    #[error("certificate parse error: {0}")]
     CertificateParse(String),
-
-    #[error("private key parse error: {0}")]
     PrivateKeyParse(String),
-
-    #[error("tls: private key does not match public key")]
     KeyMismatch,
-
-    #[error("tls: {0}")]
     TlsError(String),
 }
+
+// 为 ValidationError 实现 Display trait 来替代 thiserror 的 #[error]
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValidationError::CertificateParse(msg) => {
+                write!(f, "certificate parse error: {}", msg)
+            }
+            ValidationError::PrivateKeyParse(msg) => {
+                write!(f, "private key parse error: {}", msg)
+            }
+            ValidationError::KeyMismatch => {
+                write!(f, "tls: private key does not match public key")
+            }
+            ValidationError::TlsError(msg) => {
+                write!(f, "tls: {}", msg)
+            }
+        }
+    }
+}
+
+// 实现 Error trait 以保持与原始错误类型的兼容性
+impl std::error::Error for ValidationError {}
 
 /// 精确模拟Go的tls.X509KeyPair函数的行为
 pub fn x509_key_pair_rust(cert_data: &[u8], key_data: &[u8]) -> Result<(), ValidationError> {
@@ -43,7 +58,8 @@ pub fn x509_key_pair_rust(cert_data: &[u8], key_data: &[u8]) -> Result<(), Valid
     crypto_init::ensure_initialized();
 
     // 1. 解析证书链
-    let certs = parse_certificates(cert_data).map_err(ValidationError::CertificateParse)?;
+    let certs = parse_certificates(cert_data)
+        .map_err(ValidationError::CertificateParse)?;
 
     let first_cert = certs
         .first()
@@ -55,7 +71,8 @@ pub fn x509_key_pair_rust(cert_data: &[u8], key_data: &[u8]) -> Result<(), Valid
         .clone(); // 克隆证书数据
 
     // 2. 解析私钥
-    let private_key = parse_private_key(key_data).map_err(ValidationError::PrivateKeyParse)?;
+    let private_key = parse_private_key(key_data)
+        .map_err(ValidationError::PrivateKeyParse)?;
 
     // 3. 尝试构建ServerConfig来验证匹配性
     match try_build_server_config(vec![first_cert], private_key) {
@@ -178,7 +195,6 @@ fn parse_pem_private_key(pem_str: &str) -> Result<PrivateKeyDer<'static>, String
     let mut key_type = String::new();
     let mut base64_data = String::new();
 
-    // while let Some(line) = lines.next() {
     for line in lines {
         let line = line.trim();
 
